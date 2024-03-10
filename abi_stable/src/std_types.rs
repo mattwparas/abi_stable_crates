@@ -11,6 +11,7 @@ pub mod cow;
 pub mod map;
 pub(crate) mod option;
 pub(crate) mod range;
+pub(crate) mod rc;
 pub(crate) mod result;
 pub(crate) mod slice_mut;
 pub(crate) mod slices;
