@@ -13,6 +13,8 @@ use std::{
 
 use generational_arena::{Arena, Index as ArenaIndex};
 
+use slotmap::{new_key_type, DefaultKey, SlotMap};
+
 use core_extensions::SelfOps;
 
 /// A Map that maps multiple keys to the same value.
@@ -22,7 +24,8 @@ use core_extensions::SelfOps;
 #[derive(Clone)]
 pub struct MultiKeyMap<K, T> {
     map: HashMap<K, MapIndex>,
-    arena: Arena<MapValue<K, T>>,
+    // arena: Arena<MapValue<K, T>>,
+    arena: SlotMap<MapIndex, MapValue<K, T>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,10 +34,14 @@ struct MapValue<K, T> {
     value: T,
 }
 
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct MapIndex {
-    index: ArenaIndex,
+// #[repr(transparent)]
+// #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+// pub struct MapIndex {
+//     index: DefaultKey,
+// }
+
+new_key_type! {
+    pub struct MapIndex;
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -59,7 +66,8 @@ where
     pub fn new() -> Self {
         Self {
             map: HashMap::default(),
-            arena: Arena::new(),
+            // arena: Arena::new(),
+            arena: SlotMap::with_key(),
         }
     }
 
@@ -81,23 +89,6 @@ where
         self.get_mut_with_index(i)
     }
 
-    #[allow(dead_code)]
-    pub fn get2_mut<Q>(&mut self, key0: &Q, key1: &Q) -> (Option<&mut T>, Option<&mut T>)
-    where
-        K: Borrow<Q>,
-        Q: Hash + Eq + ?Sized,
-    {
-        let i0 = self.map.get(key0).cloned();
-        let i1 = self.map.get(key1).cloned();
-
-        match (i0, i1) {
-            (None, None) => (None, None),
-            (Some(l), None) => (self.get_mut_with_index(l), None),
-            (None, Some(r)) => (None, self.get_mut_with_index(r)),
-            (Some(l), Some(r)) => self.get2_mut_with_index(l, r),
-        }
-    }
-
     pub fn get_index<Q>(&self, key: &Q) -> Option<MapIndex>
     where
         K: Borrow<Q>,
@@ -107,23 +98,19 @@ where
     }
 
     pub fn get_with_index(&self, i: MapIndex) -> Option<&T> {
-        self.arena.get(i.index).map(|x| &x.value)
+        self.arena.get(i).map(|x| &x.value)
     }
 
     pub fn get_mut_with_index(&mut self, i: MapIndex) -> Option<&mut T> {
-        self.arena.get_mut(i.index).map(|x| &mut x.value)
+        self.arena.get_mut(i).map(|x| &mut x.value)
     }
 
-    pub fn get2_mut_with_index(
-        &mut self,
-        i0: MapIndex,
-        i1: MapIndex,
-    ) -> (Option<&mut T>, Option<&mut T>) {
-        let (l, r) = self.arena.get2_mut(i0.index, i1.index);
+    pub fn get2_mut_with_index(&mut self, i0: MapIndex, i1: MapIndex) -> Option<[&mut T; 2]> {
         fn mapper<K, T>(x: &mut MapValue<K, T>) -> &mut T {
             &mut x.value
         }
-        (l.map(mapper), r.map(mapper))
+
+        self.arena.get_disjoint_mut([i0, i1]).map(|x| x.map(mapper))
     }
 
     #[allow(dead_code)]
@@ -159,14 +146,11 @@ where
     /// modifying the collection.
     ///
     pub fn replace_with_index(&mut self, replace: MapIndex, with: MapIndex) -> Option<T> {
-        if replace == with
-            || !self.arena.contains(replace.index)
-            || !self.arena.contains(with.index)
-        {
+        if replace == with || !self.arena.contains_key(replace) || !self.arena.contains_key(with) {
             return None;
         }
-        let with_ = self.arena.remove(with.index)?;
-        let replaced = self.arena.get_mut(replace.index)?;
+        let with_ = self.arena.remove(with)?;
+        let replaced = self.arena.get_mut(replace)?;
         for key in &with_.keys {
             *self.map.get_mut(key).unwrap() = replace;
         }
@@ -183,7 +167,7 @@ where
                 let index = *entry.get();
                 InsertionTime::Before(IndexValue {
                     index,
-                    value: &mut self.arena[index.index].value,
+                    value: &mut self.arena[index].value,
                 })
             }
             Entry::Vacant(entry) => {
@@ -191,12 +175,12 @@ where
                     keys: vec![key],
                     value,
                 };
-                let index = MapIndex::new(self.arena.insert(inserted));
+                let index = self.arena.insert(inserted);
                 entry.insert(index);
                 // Just inserted the value at the index
                 InsertionTime::Now(IndexValue {
                     index,
-                    value: &mut self.arena.get_mut(index.index).unwrap().value,
+                    value: &mut self.arena.get_mut(index).unwrap().value,
                 })
             }
         }
@@ -212,7 +196,7 @@ where
     where
         K: Clone,
     {
-        let value = match self.arena.get_mut(index.index) {
+        let value = match self.arena.get_mut(index) {
             Some(x) => x,
             None => panic!("Invalid index:{:?}", index),
         };
@@ -243,31 +227,23 @@ where
     where
         K: Clone + ::std::fmt::Debug,
     {
-        assert!(
-            self.arena.contains(index.index),
-            "Invalid index:{:?}",
-            index,
-        );
+        assert!(self.arena.contains_key(index), "Invalid index:{:?}", index,);
         let ret = match self.map.entry(key.clone()) {
             Entry::Occupied(mut entry) => {
                 let index_before = *entry.get();
                 entry.insert(index);
-                let slot = &mut self.arena[index_before.index];
+                let slot = &mut self.arena[index_before];
                 let key_ind = slot.keys.iter().position(|x| *x == key).unwrap();
                 slot.keys.swap_remove(key_ind);
                 if slot.keys.is_empty() {
-                    self.arena
-                        .remove(index_before.index)
-                        .unwrap()
-                        .value
-                        .piped(Some)
+                    self.arena.remove(index_before).unwrap().value.piped(Some)
                 } else {
                     None
                 }
             }
             Entry::Vacant(_) => None,
         };
-        let value = &mut self.arena[index.index];
+        let value = &mut self.arena[index];
         self.map.entry(key.clone()).or_insert(index);
         value.keys.push(key);
         ret
@@ -333,14 +309,14 @@ where
                 None => return false,
             };
 
-            let r_val = &other.arena[r_val_index.index];
+            let r_val = &other.arena[r_val_index];
 
             if l_val.value != r_val.value {
                 return false;
             }
 
             let all_map_to_r_val = keys.all(|key| match other.get_index(key) {
-                Some(r_ind) => ptr::eq(r_val, &other.arena[r_ind.index]),
+                Some(r_ind) => ptr::eq(r_val, &other.arena[r_ind]),
                 None => false,
             });
 
@@ -349,13 +325,6 @@ where
             }
         }
         true
-    }
-}
-
-impl MapIndex {
-    #[inline]
-    fn new(index: ArenaIndex) -> Self {
-        Self { index }
     }
 }
 

@@ -833,10 +833,9 @@ impl AbiChecker {
                     prefix_type_map.associate_key(o_utid, im_index);
                 }
                 (Some(l_index), Some(r_index)) => {
-                    let (l_prefix, r_prefix) =
-                        prefix_type_map.get2_mut_with_index(l_index, r_index);
-                    let l_prefix = l_prefix.unwrap();
-                    let r_prefix = r_prefix.unwrap();
+                    let [l_prefix, r_prefix] = prefix_type_map
+                        .get2_mut_with_index(l_index, r_index)
+                        .unwrap();
 
                     let (replace, with) = if l_prefix.fields.len() < r_prefix.fields.len() {
                         (l_index, r_index)
@@ -933,10 +932,9 @@ impl AbiChecker {
                     nonexhaustive_map.associate_key(o_utid, im_index);
                 }
                 (Some(l_index), Some(r_index)) => {
-                    let (l_nonexh, r_nonexh) =
-                        nonexhaustive_map.get2_mut_with_index(l_index, r_index);
-                    let l_nonexh = l_nonexh.unwrap();
-                    let r_nonexh = r_nonexh.unwrap();
+                    let [l_nonexh, r_nonexh] = nonexhaustive_map
+                        .get2_mut_with_index(l_index, r_index)
+                        .unwrap();
 
                     let (replace, with) =
                         if l_nonexh.enum_.variant_count() < r_nonexh.enum_.variant_count() {
@@ -1038,10 +1036,9 @@ impl AbiChecker {
                     extra_checker_map.associate_key(o_utid, im_index);
                 }
                 (Some(l_index), Some(r_index)) => {
-                    let (l_extra_checks, r_extra_checks) =
-                        extra_checker_map.get2_mut_with_index(l_index, r_index);
-                    let l_extra_checks = l_extra_checks.unwrap();
-                    let r_extra_checks = r_extra_checks.unwrap();
+                    let [l_extra_checks, r_extra_checks] = extra_checker_map
+                        .get2_mut_with_index(l_index, r_index)
+                        .unwrap();
 
                     combine_extra_checks(
                         errs,
