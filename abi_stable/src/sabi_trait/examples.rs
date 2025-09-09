@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use core_extensions::SelfOps;

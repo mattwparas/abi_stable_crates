@@ -1,6 +1,8 @@
 // This pub module only tests that the code inside compiles
 #![allow(clippy::derive_partial_eq_without_eq)]
 #![allow(dead_code)]
+#![allow(missing_docs)]
+#![allow(unused)]
 
 use std::{
     cmp::{Eq, Ord, PartialEq, PartialOrd},
